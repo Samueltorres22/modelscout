@@ -1,0 +1,20 @@
+name: vlm_ocr
+description: "Vision-language models under 5B params suitable for on-device OCR"
+
+pipeline_tags: ["image-text-to-text", "visual-question-answering"]
+keywords_include: ["ocr", "document", "vision-language", "vlm"]
+keywords_exclude: ["audio", "speech"]
+max_params_billion: 5.0
+min_downloads: 100
+min_likes: 5
+lookback_days: 365
+
+triage:
+  candidate_labels:
+    - "a vision-language model suitable for on-device OCR or document understanding"
+    - "not related to OCR, document understanding, or on-device vision"
+  relevance_threshold: 0.6
+
+notify:
+  top_n: 10
+  output_dir: "digests"

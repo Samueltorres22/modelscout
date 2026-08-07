@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+digests/*.md
+!digests/.gitkeep
+.claude/
+.pytest_cache/
+huggingface_hub_cache/
