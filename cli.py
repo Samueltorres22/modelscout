@@ -38,7 +38,9 @@ def main() -> None:
             f"Ingested {counts['ingested']} -> "
             f"Triage pass (local, $0): {counts['triage_pass']} -> "
             f"Extracted via Claude: {counts['extracted']} "
-            f"({counts['parse_errors']} parse error(s))"
+            f"({counts['parse_errors']} parse error(s)) -> "
+            f"Fact-checked: {counts['fact_checked']} "
+            f"({counts['implausible']} flagged implausible)"
         )
         print(f"Digest written to: {summary['digest_markdown_path']}")
 

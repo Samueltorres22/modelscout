@@ -55,6 +55,20 @@ CREATE TABLE IF NOT EXISTS extracted_specs (
     extracted_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS fact_checks (
+    id                   BIGSERIAL PRIMARY KEY,
+    model_id             TEXT NOT NULL REFERENCES models(model_id) ON DELETE CASCADE,
+    verdict              TEXT NOT NULL,                  -- plausible | questionable | implausible
+    confidence           REAL NOT NULL,
+    flags                JSONB,                          -- list[str]
+    consistency_issues   JSONB,                          -- list[str]
+    reasoning            TEXT,
+    parse_error          BOOLEAN NOT NULL DEFAULT FALSE,
+    parse_error_detail   TEXT,
+    raw_model_response   JSONB,
+    checked_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS digest_runs (
     id                   BIGSERIAL PRIMARY KEY,
     profile_name          TEXT NOT NULL,
@@ -63,5 +77,7 @@ CREATE TABLE IF NOT EXISTS digest_runs (
     n_triage_pass          INT,
     n_extracted            INT,
     n_parse_errors          INT,
+    n_fact_checked         INT,
+    n_implausible          INT,
     digest_markdown_path    TEXT
 );

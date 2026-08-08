@@ -15,14 +15,19 @@ get an isolated private state; only Annotated-reducer keys (here, `results`)
 are safe to write from multiple parallel branches.
 
 Fix: collapse the per-item chain into ONE node (process_model_node) that
-internally calls the same triage_node/extractor_node/skip_node FUNCTIONS
-(still independently unit-tested, still reusable) and returns a single
-`{"results": [...]}` write -- the only channel multiple parallel branches
-ever touch, and the one channel that has an operator.add reducer. The
-cost-aware-routing guarantee is now enforced by the explicit if/else below
-rather than by graph topology; it's still concretely checked (not just
-asserted in a docstring) via the `n_extracted == n_triage_pass` assertion in
-pipeline.py after every run.
+internally calls the same triage_node/extractor_node/skip_node/fact_check
+FUNCTIONS (still independently unit-tested, still reusable) and returns a
+single `{"results": [...]}` write -- the only channel multiple parallel
+branches ever touch, and the one channel that has an operator.add reducer.
+The cost-aware-routing guarantee is now enforced by the explicit if/else
+below rather than by graph topology; it's still concretely checked (not
+just asserted in a docstring) via the `n_extracted == n_triage_pass`
+assertion in pipeline.py after every run.
+
+Fact-Checker is gated the same way Extractor is gated by Triage: it only
+runs when there's something to check (extraction succeeded AND
+declared_benchmarks is non-empty) -- a second cost-aware step, same
+philosophy as the first.
 """
 
 from __future__ import annotations
@@ -31,7 +36,9 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from modelscout.agents.extractor_node import extractor_node, skip_node
+from modelscout.agents.fact_checker_node import fact_check
 from modelscout.agents.notifier_node import notifier_node
+from modelscout.agents.schemas import ExtractedModelSpecs
 from modelscout.agents.state import ModelState, PipelineState
 from modelscout.agents.triage_node import triage_node
 
@@ -57,9 +64,22 @@ def process_model_node(state: ModelState) -> dict:
     triage_update = triage_node(state)
     merged: ModelState = {**state, **triage_update}  # type: ignore[assignment]
 
-    if merged["is_relevant"]:
-        return extractor_node(merged)  # the only path that calls the Anthropic API
-    return skip_node(merged)
+    if not merged["is_relevant"]:
+        return skip_node(merged)
+
+    extractor_output = extractor_node(merged)  # the only path that calls Extractor's Claude call
+    result = extractor_output["results"][0]
+
+    extracted = result.get("extracted")
+    has_checkable_claims = extracted and not extracted.get("parse_error") and extracted.get("declared_benchmarks")
+    if has_checkable_claims:
+        specs = ExtractedModelSpecs.model_validate(extracted)
+        fc = fact_check(merged["model_id"], specs)  # the only path that calls Fact-Checker's Claude call
+        result["fact_check"] = fc.model_dump()
+    else:
+        result["fact_check"] = None
+
+    return {"results": [result]}
 
 
 def build_graph():

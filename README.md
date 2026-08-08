@@ -1,8 +1,8 @@
 # ModelScout — Multi-Agent Radar for Open-Source Models (v1 Vertical Slice)
 
-ModelScout watches Hugging Face for new/trending models, filters them against a configurable **interest profile**, extracts real specs from the model card, and produces a ranked digest — built to demonstrate real agentic-engineering practice (LangGraph orchestration, RAG, cost-aware model routing), not a thin API wrapper.
+ModelScout watches Hugging Face for new/trending models, filters them against a configurable **interest profile**, extracts real specs from the model card, fact-checks the declared benchmark claims, and produces a ranked digest — built to demonstrate real agentic-engineering practice (LangGraph orchestration, RAG, cost-aware model routing, eval-driven development), not a thin API wrapper.
 
-This is the **v1 vertical slice**: one complete, working path through the core architecture. Deliberately out of scope for now (see [Phase 2](#phase-2-not-built-yet)): the Fact-Checker (LLM-as-judge) agent, a dashboard, AWS deployment, and the eval-suite/LLMOps layer.
+This is the **v1 vertical slice**: one complete, working path through the core architecture, now including a Fact-Checker agent with its own golden regression suite. Deliberately out of scope for now (see [Phase 2](#phase-2-not-built-yet)): a dashboard, AWS deployment, and full LLMOps tracing/CI.
 
 ## Architecture
 
@@ -18,25 +18,30 @@ HF Hub API (unauthenticated)
         │                        ▼
         │              pgvector (model_card_chunks) ──▶ GET /search (semantic search)
         ▼
-  LangGraph: fan-out one Triage call per candidate (Send)
+  LangGraph: fan-out one process_model_node call per candidate (Send)
         │
         ▼
   Triage Agent (local zero-shot classification, facebook/bart-large-mnli, CPU, $0)
         │
-   is_relevant? ──── no ──▶ skip_node (no LLM call)
-        │ yes                      │
-        ▼                          │
+   is_relevant? ──── no ──▶ skip (no LLM call)
+        │ yes
+        ▼
   Extractor Agent (Claude, forced tool-use, 3-level tolerant fallback parser)
-        │                          │
-        └──────────┬───────────────┘
-                    ▼
+        │
+   declared_benchmarks non-empty & extraction succeeded? ──── no ──▶ skip (no LLM call)
+        │ yes
+        ▼
+  Fact-Checker Agent (Claude, LLM-as-judge plausibility/consistency read, same forced
+  tool-use + tolerant-fallback pattern, own golden regression suite)
+        │
+        ▼
          Notifier (ranks + writes digests/<date>-<profile>.md)
                     │
                     ▼
          cli.py / POST /pipeline/run (same orchestrator function)
 ```
 
-**The core claim this architecture makes verifiable, not just assertable:** the Extractor Agent (the only node that calls the paid Anthropic API) is reachable *only* via the `"extract"` branch of the triage routing decision — there is no other edge into it. `pipeline.py` asserts `n_extracted == n_triage_pass` after every run, so "N models screened locally for $0, only M sent to Claude" isn't a docstring promise, it's a checked invariant.
+**The core claim this architecture makes verifiable, not just assertable:** the Extractor Agent (the only path that calls the paid Anthropic API for extraction) only runs for models Triage marked relevant, and the Fact-Checker only runs for models with something to check. `pipeline.py` asserts `n_extracted == n_triage_pass` after every run — "N models screened locally for $0, only M sent to Claude" isn't a docstring promise, it's a checked invariant. Fact-Checker's gate (extraction succeeded AND has declared benchmarks) is the same cost-aware philosophy applied a second time.
 
 ## Setup
 
@@ -88,21 +93,35 @@ curl "http://localhost:8000/search?q=lightweight vision model for document OCR&k
 curl -X POST http://localhost:8000/pipeline/run -H "Content-Type: application/json" -d "{\"profile_name\": \"vlm_ocr\", \"limit\": 20}"
 ```
 
+### Run the Fact-Checker's golden eval
+
+```bash
+python scripts/run_golden_eval.py
+```
+
+Makes real Anthropic API calls (one per example in `config/golden/fact_check_examples.yaml`) and reports whether each hand-labeled example's verdict still lands in the expected bucket. **Not** a pytest test — it costs real money, so run it deliberately when you change the judge's prompt or model, not on every `pytest` invocation. This is the actual eval-driven-development loop: change the prompt, run this, see if the verdict distribution held before you ship.
+
 ## Tuning
 
-- **Model / cost**: `ANTHROPIC_EXTRACTOR_MODEL` in `.env` — extraction from a README isn't reasoning-heavy, so a cheaper model is a reasonable choice; no code change needed.
-- **Triage threshold / candidate labels / which pipeline_tags to watch**: edit the profile YAML (e.g. `config/interest_profiles/vlm_ocr.yaml`). `triage.candidate_labels[0]` is the "relevant" hypothesis the classifier scores independently (multi_label scoring — see `modelscout/agents/triage_node.py` for why a forced two-way softmax was tried and rejected).
-- **Diff/README size cap**: the Extractor call truncates README input at 12,000 characters (`extractor_node.py`).
+- **Model / cost**: `ANTHROPIC_EXTRACTOR_MODEL` in `.env` — used by both Extractor and Fact-Checker. Extraction and fact-checking from a README aren't reasoning-heavy tasks, so a cheaper model is a reasonable choice; no code change needed.
+- **Triage threshold / candidate labels / which pipeline_tags to watch**: edit the profile YAML (e.g. `config/interest_profiles/vlm_ocr.yaml`). `triage.candidate_labels[0]` is the "relevant" hypothesis the classifier scores independently (multi_label scoring — see `modelscout/agents/triage_node.py`).
+- **Fact-Checker rubric / golden set**: `modelscout/agents/fact_checker_node.py`'s `_SYSTEM_PROMPT`, and `config/golden/fact_check_examples.yaml` for the regression cases.
+- **README size cap**: the Extractor call truncates README input at 12,000 characters (`extractor_node.py`).
 
 ## Design notes worth knowing before extending this
 
-- **Triage input cleaning matters more than it looks.** Raw HF READMEs open with YAML frontmatter, badge/logo HTML, and changelog lists before any descriptive prose — feeding that directly to zero-shot classification produced backwards results (a real vision-language model scored *lower* than unrelated text-only LLMs) during development. `triage_node.py`'s `_clean_for_classification` strips all of that first. If you swap the triage model or approach, re-verify against a few real model cards before trusting the scores — this class of bug is silent, not an exception.
+Several of these were found by running the real pipeline against real models, not by reasoning about the code in the abstract — worth reading before you change the agents or the graph.
+
+- **Triage classifies on the model's name + HF tags, not README prose.** The first approach — classifying cleaned README text — produced backwards results (a real vision-language model scored *lower* than unrelated text-only LLMs) even after stripping YAML frontmatter, badges, changelogs, and code blocks: `facebook/bart-large-mnli` is trained on short sentence pairs and degrades on long, heterogeneous documents no matter how much noise you strip. HF's own `tags` field is short, curated, and a much better match for the classifier's training distribution. Known tradeoff: a low-quality community upload can carry misleading tags copied from a base model (verified case: a GGUF text-only "uncensored" merge tagged `vision, multimodal` scored as relevant) — a real data-quality limit of the free tag signal, not a bug in the classifier call. See `triage_node.py`'s docstring.
+- **LangGraph's `Send`-based fan-out does not give each parallel branch isolated state.** An earlier version modeled Triage and Extractor/Skip as separate graph nodes joined by a conditional edge, on the theory that "only the extract branch can reach the Extractor node" should be a structural graph property. It isn't possible that way: every `Send`-spawned branch shares the same graph-level state channels, and any key without an `Annotated` reducer raises `InvalidUpdateError: Can receive only one value per step` the moment more than one candidate runs in the same superstep. Fix: collapse the whole per-item chain (triage → extract/skip → fact-check) into one node (`process_model_node`) that calls the underlying functions directly and writes only to the one `Annotated[list, operator.add]` field (`results`). The cost-aware-routing guarantee is now an explicit `if`, verified by the `n_extracted == n_triage_pass` assertion in `pipeline.py` rather than by graph topology. See `graph.py`'s docstring.
+- **Forced tool-use reliably enforces `required`/`enum`/`type` — not `minLength` or numeric `minimum`/`maximum`.** Verified repeatedly and empirically on the Fact-Checker: even with `"minLength": 1` on `reasoning` and `"minimum": 0.05` on `confidence`, both fields sometimes came back empty/zero anyway (more often on models with very large `declared_benchmarks` lists). `fact_checker_node.py`'s `_normalize_result` patches both rather than surfacing a misleading blank/zero — same tolerant-fallback philosophy as the parser itself.
+- **Field ORDER in a forced tool-use schema controls generation order, and that matters for consistency.** Early on, `verdict` was the first field in the schema. The model would commit to a verdict, then write `reasoning`/`flags` that flatly contradicted it — one case had `reasoning` conclude "looks like fabricated or mislabeled benchmark reporting" while `verdict` said `"plausible"`. Moving `verdict` to be the LAST field (decided only after `flags`, `consistency_issues`, `reasoning`, `confidence` are written) fixed it: the conclusion now has to follow from the analysis instead of being picked before the analysis exists. If you add a new judge/extractor tool schema, put "decide" fields after "analyze" fields.
 - **Idempotent by design.** Re-running the same profile upserts on `model_id` rather than duplicating rows — safe to schedule on a cron without deduping logic elsewhere.
 - **`pipeline.py` is the only orchestrator.** Both `cli.py` and `POST /pipeline/run` call the exact same function — if you add a third entrypoint (a scheduled job, a Slack slash command), call `modelscout.pipeline.run()`, don't reimplement the flow.
+- **`db/schema.sql` only applies on first container init.** Postgres runs `docker-entrypoint-initdb.d` scripts once, on an empty volume. If you edit the schema after the volume already has data, apply the DDL by hand against the running container (`docker exec modelscout-postgres psql ...`) as well as updating `schema.sql` for fresh installs — there's no migration tool in this v1 scope.
 
 ## Phase 2 (not built yet)
 
-- **Fact-Checker agent**: LLM-as-judge evaluation of the Extractor's declared-benchmark claims against a golden dataset, with regression tests that catch quality drops when a prompt or model changes.
-- **LLMOps**: prompt versioning, per-agent tracing/cost observability (Langfuse), CI that runs the eval suite on any PR touching prompts or agents.
+- **LLMOps**: prompt versioning, per-agent tracing/cost observability (Langfuse), CI that runs `scripts/run_golden_eval.py` on any PR touching agent prompts.
 - **Serving**: React dashboard over the API; move `POST /pipeline/run` to `BackgroundTasks` + a status-polling endpoint instead of running synchronously.
 - **Deploy**: Docker Compose → AWS (ECS Fargate or Lambda, RDS with pgvector).

@@ -60,6 +60,32 @@ def _format_entry(result: dict) -> str:
         )
         lines.append(f"- Declared benchmarks: {bench_str}")
 
+    fact_check = result.get("fact_check")
+    if fact_check is not None:
+        lines.append("")
+        lines.append(_format_fact_check(fact_check))
+
+    return "\n".join(lines)
+
+
+_VERDICT_EMOJI = {"plausible": "✅", "questionable": "🟡", "implausible": "🚩"}
+
+
+def _format_fact_check(fact_check: dict) -> str:
+    if fact_check.get("parse_error"):
+        return "🔍 **Fact-check:** could not be completed automatically -- needs manual review."
+
+    verdict = fact_check.get("verdict", "questionable")
+    emoji = _VERDICT_EMOJI.get(verdict, "🟡")
+    lines = [f"🔍 **Fact-check: {emoji} {verdict}** (confidence {fact_check.get('confidence', 0):.2f})"]
+    lines.append(f"  {fact_check.get('reasoning', '')}")
+
+    flags = fact_check.get("flags") or []
+    for f in flags:
+        lines.append(f"  - {f}")
+    for issue in fact_check.get("consistency_issues") or []:
+        lines.append(f"  - {issue}")
+
     return "\n".join(lines)
 
 
@@ -75,6 +101,10 @@ def build_digest(state: PipelineState) -> str:
     n_parse_errors = sum(
         1 for r in results if r.get("extracted") and r["extracted"].get("parse_error")
     )
+    n_fact_checked = sum(1 for r in results if r.get("fact_check") is not None)
+    n_implausible = sum(
+        1 for r in results if r.get("fact_check") and r["fact_check"].get("verdict") == "implausible"
+    )
 
     lines = [
         f"# ModelScout Digest — {profile['name']}",
@@ -82,7 +112,8 @@ def build_digest(state: PipelineState) -> str:
         "",
         f"**{n_ingested}** candidates ingested → **{n_triage_pass}** passed triage "
         f"(screened locally, $0 API cost) → **{n_extracted}** sent to Claude for extraction "
-        f"(**{n_parse_errors}** parse error(s)).",
+        f"(**{n_parse_errors}** parse error(s)) → **{n_fact_checked}** fact-checked "
+        f"(**{n_implausible}** flagged implausible).",
         "",
         "---",
         "",

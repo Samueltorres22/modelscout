@@ -1,0 +1,145 @@
+# Golden regression set for the Fact-Checker judge. NOT a live benchmark
+# reproduction -- these are hand-crafted cases covering the rubric's four
+# failure modes (implausible-for-size, internal inconsistency, unverifiable/
+# vague claims, marketing hype without substantiation), each with a known
+# expected verdict. Run via `python scripts/run_golden_eval.py` whenever the
+# judge's prompt or model changes -- this is how you catch a quality
+# regression before it ships, not after.
+#
+# expected_verdict is intentionally coarse (plausible / questionable /
+# implausible) since an LLM judge's exact confidence score will vary run to
+# run -- the regression check is "did the verdict land in the right bucket,"
+# not "did it reproduce an exact number."
+
+- id: plausible_realistic_ocr_scores
+  notes: >
+    Modest, believable scores for a small dedicated OCR model. Nothing here
+    should read as a red flag.
+  extracted:
+    model_id: example/plausible-small-ocr
+    params_billion: 2.0
+    license: apache-2.0
+    architecture_family: "ViT encoder + small LLM decoder"
+    hardware_requirements: "8GB VRAM, fp16"
+    quantization_available: ["4-bit"]
+    declared_benchmarks:
+      - {name: "DocVQA-val", metric: "ANLS", score: 78.4}
+      - {name: "OCRBench", metric: null, score: 71.2}
+  expected_verdict: plausible
+
+- id: implausible_tiny_model_beats_everyone
+  notes: >
+    A 0.5B model claiming to beat 100B+ frontier models on hard reasoning
+    benchmarks with near-perfect scores -- classic implausible-for-size.
+  extracted:
+    model_id: example/tiny-genius-0.5b
+    params_billion: 0.5
+    license: mit
+    architecture_family: "small transformer"
+    hardware_requirements: "runs on CPU"
+    quantization_available: []
+    declared_benchmarks:
+      - {name: "MMLU", metric: null, score: 98.7}
+      - {name: "GPQA Diamond", metric: null, score: 95.0}
+  expected_verdict: implausible
+
+- id: questionable_vague_unverifiable
+  notes: >
+    No concrete benchmark names, just marketing language ("great results",
+    "outperforms competitors") with no numbers or comparison basis at all.
+  extracted:
+    model_id: example/vague-claims-model
+    params_billion: 7.0
+    license: apache-2.0
+    architecture_family: "transformer"
+    hardware_requirements: "unknown"
+    quantization_available: []
+    declared_benchmarks:
+      - {name: "Internal eval", metric: null, score: "great results, outperforms competitors"}
+  expected_verdict: questionable
+
+- id: implausible_internal_contradiction_hardware
+  notes: >
+    A 70B-parameter dense model claiming to run comfortably on a 4GB mobile
+    phone with no quantization mentioned -- direct internal contradiction
+    between params_billion and hardware_requirements.
+  extracted:
+    model_id: example/70b-on-your-phone
+    params_billion: 70.0
+    license: apache-2.0
+    architecture_family: "dense transformer"
+    hardware_requirements: "runs smoothly on any 4GB RAM smartphone"
+    quantization_available: []
+    declared_benchmarks:
+      - {name: "MMLU", metric: null, score: 82.1}
+  expected_verdict: implausible
+
+- id: plausible_recognizable_benchmarks_realistic_range
+  notes: >
+    Well-known benchmarks (MMLU, GSM8K, HumanEval) with scores that sit in
+    the range typically seen for a well-trained ~30B model. Nothing
+    surprising.
+  extracted:
+    model_id: example/solid-30b-instruct
+    params_billion: 30.0
+    license: apache-2.0
+    architecture_family: "dense transformer, RLHF-tuned"
+    hardware_requirements: "2x A100 80GB for fp16 inference"
+    quantization_available: ["8-bit", "GGUF"]
+    declared_benchmarks:
+      - {name: "MMLU", metric: null, score: 76.3}
+      - {name: "GSM8K", metric: null, score: 81.9}
+      - {name: "HumanEval", metric: "pass@1", score: 62.4}
+  expected_verdict: plausible
+
+- id: implausible_perfect_scores
+  notes: >
+    Perfect or near-perfect scores across every listed benchmark is a
+    textbook red flag (overfitting to test set, cherry-picking, or
+    fabrication) regardless of model size.
+  extracted:
+    model_id: example/perfect-scores-everywhere
+    params_billion: 8.0
+    license: mit
+    architecture_family: "transformer"
+    hardware_requirements: "16GB VRAM"
+    quantization_available: []
+    declared_benchmarks:
+      - {name: "MMLU", metric: null, score: 100.0}
+      - {name: "GSM8K", metric: null, score: 100.0}
+      - {name: "HumanEval", metric: null, score: 99.8}
+  expected_verdict: implausible
+
+- id: questionable_no_baseline_cherry_picked
+  notes: >
+    Reports only a single obscure, non-standard benchmark with no comparison
+    to any baseline or other model -- not necessarily false, but
+    unverifiable and worth flagging rather than trusting outright.
+  extracted:
+    model_id: example/one-obscure-benchmark-only
+    params_billion: 4.0
+    license: apache-2.0
+    architecture_family: "VLM"
+    hardware_requirements: "12GB VRAM"
+    quantization_available: []
+    declared_benchmarks:
+      - {name: "InternalCorpBench-v3", metric: null, score: 91.4}
+  expected_verdict: questionable
+
+- id: plausible_honest_mixed_results
+  notes: >
+    Mixed results -- strong on some benchmarks, mediocre on others -- reads
+    as more credible than uniformly excellent scores, and is typical of a
+    real model card that isn't cherry-picking.
+  extracted:
+    model_id: example/honest-mixed-results
+    params_billion: 13.0
+    license: apache-2.0
+    architecture_family: "dense transformer"
+    hardware_requirements: "24GB VRAM fp16"
+    quantization_available: ["4-bit"]
+    declared_benchmarks:
+      - {name: "MMLU", metric: null, score: 68.2}
+      - {name: "GSM8K", metric: null, score: 54.1}
+      - {name: "HumanEval", metric: null, score: 39.6}
+  expected_verdict: plausible

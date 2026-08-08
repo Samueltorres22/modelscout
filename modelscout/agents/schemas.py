@@ -59,3 +59,26 @@ class TriageResult(BaseModel):
     is_relevant: bool
     confidence: float
     raw_labels: dict
+
+
+class FactCheckResult(BaseModel):
+    """Structured output of the Fact-Checker Agent's forced tool-use call.
+
+    This is an LLM-as-judge plausibility/consistency read of the Extractor's
+    declared_benchmarks against the card's own stated params/architecture --
+    NOT a re-run of the actual benchmarks (infeasible for arbitrary
+    multi-billion-parameter HF models in this project's scope). Same kind of
+    judgment a human reviewer makes skimming a paper's claims for red flags
+    without independently reproducing every experiment.
+    """
+
+    model_id: str
+    verdict: str = "plausible"  # plausible | questionable | implausible
+    confidence: float = 0.0
+    flags: list[str] = Field(default_factory=list)
+    consistency_issues: list[str] = Field(default_factory=list)
+    reasoning: str = ""
+
+    parse_error: bool = False
+    parse_error_detail: str | None = None
+    raw_model_response: dict | str | None = None

@@ -33,10 +33,18 @@ INSERT INTO extracted_specs (
 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
+_INSERT_FACT_CHECK_SQL = """
+INSERT INTO fact_checks (
+    model_id, verdict, confidence, flags, consistency_issues, reasoning,
+    parse_error, parse_error_detail, raw_model_response
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+"""
+
 _INSERT_DIGEST_RUN_SQL = """
 INSERT INTO digest_runs (
-    profile_name, n_ingested, n_triage_pass, n_extracted, n_parse_errors, digest_markdown_path
-) VALUES (%s, %s, %s, %s, %s, %s)
+    profile_name, n_ingested, n_triage_pass, n_extracted, n_parse_errors,
+    n_fact_checked, n_implausible, digest_markdown_path
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
@@ -74,6 +82,27 @@ def _persist_results(conn, profile_name: str, results: list[dict]) -> None:
                     extracted.get("parse_error_detail"),
                     Jsonb(extracted.get("raw_model_response"))
                     if extracted.get("raw_model_response") is not None
+                    else None,
+                ),
+            )
+
+            fact_check = r.get("fact_check")
+            if fact_check is None:
+                continue
+
+            cur.execute(
+                _INSERT_FACT_CHECK_SQL,
+                (
+                    r["model_id"],
+                    fact_check.get("verdict"),
+                    fact_check.get("confidence", 0.0),
+                    Jsonb(fact_check.get("flags", [])),
+                    Jsonb(fact_check.get("consistency_issues", [])),
+                    fact_check.get("reasoning"),
+                    fact_check.get("parse_error", False),
+                    fact_check.get("parse_error_detail"),
+                    Jsonb(fact_check.get("raw_model_response"))
+                    if fact_check.get("raw_model_response") is not None
                     else None,
                 ),
             )
@@ -121,6 +150,10 @@ def run(profile_name: str, limit_per_tag: int = 20) -> dict:
     n_parse_errors = sum(
         1 for r in results if r.get("extracted") and r["extracted"].get("parse_error")
     )
+    n_fact_checked = sum(1 for r in results if r.get("fact_check") is not None)
+    n_implausible = sum(
+        1 for r in results if r.get("fact_check") and r["fact_check"].get("verdict") == "implausible"
+    )
     # This is the core cost-aware-routing claim, checked concretely rather
     # than just asserted in a docstring.
     assert n_extracted == n_triage_pass, (
@@ -128,11 +161,14 @@ def run(profile_name: str, limit_per_tag: int = 20) -> dict:
         f"({n_triage_pass}) -- routing guarantee violated"
     )
     logger.info(
-        "%d ingested -> %d passed triage locally ($0) -> %d sent to Claude (%d parse errors)",
+        "%d ingested -> %d passed triage locally ($0) -> %d sent to Claude for extraction "
+        "(%d parse errors) -> %d fact-checked (%d flagged implausible)",
         len(filtered),
         n_triage_pass,
         n_extracted,
         n_parse_errors,
+        n_fact_checked,
+        n_implausible,
     )
 
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -149,6 +185,8 @@ def run(profile_name: str, limit_per_tag: int = 20) -> dict:
                     n_triage_pass,
                     n_extracted,
                     n_parse_errors,
+                    n_fact_checked,
+                    n_implausible,
                     str(digest_path),
                 ),
             )
@@ -162,6 +200,7 @@ def run(profile_name: str, limit_per_tag: int = 20) -> dict:
             "is_relevant": r.get("is_relevant", False),
             "triage_confidence": r.get("triage_confidence", 0.0),
             "extracted": r.get("extracted"),
+            "fact_check": r.get("fact_check"),
         }
         for r in ranked[: profile.notify.top_n]
     ]
@@ -173,6 +212,8 @@ def run(profile_name: str, limit_per_tag: int = 20) -> dict:
             "triage_pass": n_triage_pass,
             "extracted": n_extracted,
             "parse_errors": n_parse_errors,
+            "fact_checked": n_fact_checked,
+            "implausible": n_implausible,
         },
         "digest_markdown_path": str(digest_path),
         "top_models": top_models,
