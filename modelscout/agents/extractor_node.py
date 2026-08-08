@@ -18,12 +18,14 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 
 import anthropic
 
 from modelscout.agents.schemas import ExtractedModelSpecs
 from modelscout.agents.state import ModelState
 from modelscout.config import settings
+from modelscout.observability import record_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +172,7 @@ def parse_claude_response(response: anthropic.types.Message, model_id: str) -> E
 
 def extract_specs(model_id: str, readme_text: str) -> ExtractedModelSpecs:
     client = _get_client()
+    start = time.perf_counter()
     response = client.messages.create(
         model=settings.anthropic_extractor_model,
         max_tokens=2048,
@@ -183,6 +186,8 @@ def extract_specs(model_id: str, readme_text: str) -> ExtractedModelSpecs:
             }
         ],
     )
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    record_llm_call("extractor", model_id, settings.anthropic_extractor_model, response, latency_ms)
     return parse_claude_response(response, model_id)
 
 

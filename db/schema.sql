@@ -69,6 +69,18 @@ CREATE TABLE IF NOT EXISTS fact_checks (
     checked_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS llm_calls (
+    id                   BIGSERIAL PRIMARY KEY,
+    agent_name           TEXT NOT NULL,                  -- extractor | fact_checker
+    model_id             TEXT,                            -- HF model this call was about, if any
+    model                TEXT NOT NULL,                   -- Claude model used
+    input_tokens         INT NOT NULL,
+    output_tokens        INT NOT NULL,
+    latency_ms           INT NOT NULL,
+    estimated_cost_usd   DOUBLE PRECISION,                 -- NULL unless price_per_mtok_* configured
+    called_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS digest_runs (
     id                   BIGSERIAL PRIMARY KEY,
     profile_name          TEXT NOT NULL,

@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://modelscout:modelscout_dev_only@localhost:5433/modelscout"
     anthropic_extractor_model: str = "claude-sonnet-5"
 
+    # Opt-in cost estimation for observability.py -- unset by default rather
+    # than hardcoding pricing figures that go stale. Set both to enable.
+    price_per_mtok_input: float | None = None
+    price_per_mtok_output: float | None = None
+
 
 def load_interest_profile(name_or_path: str) -> InterestProfile:
     """Load an interest profile by name (looked up in config/interest_profiles/)

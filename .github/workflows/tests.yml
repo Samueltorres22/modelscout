@@ -1,0 +1,34 @@
+name: Tests
+
+# Runs the unit test suite on every push/PR to main. Deliberately does NOT
+# need ANTHROPIC_API_KEY or a running Postgres -- every test in tests/
+# exercises pure logic (filters, the tolerant parsers) against synthetic
+# inputs, never a live API or DB call. The golden eval against the real
+# Fact-Checker judge is a SEPARATE, manually-triggered workflow
+# (golden-eval.yml) because it costs real money and shouldn't run on every
+# push.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # torch's CPU wheels live on a separate index; --extra-index-url lets
+      # pip resolve requirements.txt's pinned "torch==...+cpu" line from
+      # there while everything else still resolves from PyPI as normal.
+      - name: Install dependencies
+        run: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Run tests
+        run: pytest tests/ -v

@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from modelscout.agents.extractor_node import _bracket_match_json, _get_client
 from modelscout.agents.schemas import ExtractedModelSpecs, FactCheckResult
 from modelscout.config import settings
+from modelscout.observability import record_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +182,7 @@ def parse_fact_check_response(response, model_id: str) -> FactCheckResult:
 
 def fact_check(model_id: str, extracted: ExtractedModelSpecs) -> FactCheckResult:
     client = _get_client()
+    start = time.perf_counter()
     response = client.messages.create(
         model=settings.anthropic_extractor_model,
         max_tokens=1024,
@@ -188,4 +191,6 @@ def fact_check(model_id: str, extracted: ExtractedModelSpecs) -> FactCheckResult
         tool_choice={"type": "tool", "name": "submit_fact_check"},
         messages=[{"role": "user", "content": _build_user_content(model_id, extracted)}],
     )
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    record_llm_call("fact_checker", model_id, settings.anthropic_extractor_model, response, latency_ms)
     return parse_fact_check_response(response, model_id)

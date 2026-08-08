@@ -2,7 +2,7 @@
 
 ModelScout watches Hugging Face for new/trending models, filters them against a configurable **interest profile**, extracts real specs from the model card, fact-checks the declared benchmark claims, and produces a ranked digest — built to demonstrate real agentic-engineering practice (LangGraph orchestration, RAG, cost-aware model routing, eval-driven development), not a thin API wrapper.
 
-This is the **v1 vertical slice**: one complete, working path through the core architecture, now including a Fact-Checker agent with its own golden regression suite. Deliberately out of scope for now (see [Phase 2](#phase-2-not-built-yet)): a dashboard, AWS deployment, and full LLMOps tracing/CI.
+This is the **v1 vertical slice**: one complete, working path through the core architecture, including a Fact-Checker agent with its own golden regression suite, lightweight per-agent cost/latency observability, and CI. Deliberately out of scope for now (see [Phase 2](#phase-2-not-built-yet)): a dashboard, AWS deployment, and prompt versioning.
 
 ## Architecture
 
@@ -99,7 +99,23 @@ curl -X POST http://localhost:8000/pipeline/run -H "Content-Type: application/js
 python scripts/run_golden_eval.py
 ```
 
-Makes real Anthropic API calls (one per example in `config/golden/fact_check_examples.yaml`) and reports whether each hand-labeled example's verdict still lands in the expected bucket. **Not** a pytest test — it costs real money, so run it deliberately when you change the judge's prompt or model, not on every `pytest` invocation. This is the actual eval-driven-development loop: change the prompt, run this, see if the verdict distribution held before you ship.
+Makes real Anthropic API calls (one per example in `config/golden/fact_check_examples.yaml`) and reports whether each hand-labeled example's verdict still lands in the expected bucket. **Not** a pytest test — it costs real money, so run it deliberately when you change the judge's prompt or model, not on every `pytest` invocation. This is the actual eval-driven-development loop: change the prompt, run this, see if the verdict distribution held before you ship. Exits non-zero only if the pass rate drops below 50% (configurable via `--min-pass-rate`) — an LLM judge legitimately disagrees with hand labels on fuzzy cases run to run (verified baseline: 5/8), so this catches a real collapse rather than flagging normal variance.
+
+## Observability
+
+Every Extractor/Fact-Checker Claude call is recorded to the `llm_calls` table (agent name, model, input/output tokens, latency, and an optional estimated cost) by `modelscout/observability.py` — self-built rather than a hosted product like Langfuse, since the project already runs entirely local/self-hosted and the point is having real numbers to check the cost-aware-routing story against, not a second service to stand up. Recording a call can never break the pipeline: a DB write failure there is logged and swallowed, not raised.
+
+```bash
+python scripts/cost_report.py            # all-time summary by agent
+python scripts/cost_report.py --since 24h
+```
+
+Cost estimation is opt-in: set `PRICE_PER_MTOK_INPUT` / `PRICE_PER_MTOK_OUTPUT` in `.env` (both required to enable it) if you want `$` figures. Deliberately unset by default rather than shipping a hardcoded per-model price table that goes stale.
+
+## CI
+
+- **`.github/workflows/tests.yml`** — runs `pytest tests/` on every push/PR to `main`. No API key or database needed: every test exercises pure logic (filters, the tolerant parsers) against synthetic inputs.
+- **`.github/workflows/golden-eval.yml`** — manually triggered only (`workflow_dispatch`), never on push, because it costs real money. Needs an `ANTHROPIC_API_KEY` repository secret. Runs `scripts/run_golden_eval.py` deliberately, e.g. after changing the Fact-Checker's prompt.
 
 ## Tuning
 
@@ -107,6 +123,7 @@ Makes real Anthropic API calls (one per example in `config/golden/fact_check_exa
 - **Triage threshold / candidate labels / which pipeline_tags to watch**: edit the profile YAML (e.g. `config/interest_profiles/vlm_ocr.yaml`). `triage.candidate_labels[0]` is the "relevant" hypothesis the classifier scores independently (multi_label scoring — see `modelscout/agents/triage_node.py`).
 - **Fact-Checker rubric / golden set**: `modelscout/agents/fact_checker_node.py`'s `_SYSTEM_PROMPT`, and `config/golden/fact_check_examples.yaml` for the regression cases.
 - **README size cap**: the Extractor call truncates README input at 12,000 characters (`extractor_node.py`).
+- **Cost estimates in `cost_report.py`**: `PRICE_PER_MTOK_INPUT` / `PRICE_PER_MTOK_OUTPUT` in `.env`.
 
 ## Design notes worth knowing before extending this
 
@@ -122,6 +139,7 @@ Several of these were found by running the real pipeline against real models, no
 
 ## Phase 2 (not built yet)
 
-- **LLMOps**: prompt versioning, per-agent tracing/cost observability (Langfuse), CI that runs `scripts/run_golden_eval.py` on any PR touching agent prompts.
+- **Prompt versioning**: agent prompts live in code, not in a versioned/diffable store; no automated way yet to correlate a golden-eval run with the exact prompt version it tested.
+- **Retries on the Anthropic calls**: a transient API failure (rate limit, network blip) currently falls straight through to the tolerant parser's fallback path rather than retrying first.
 - **Serving**: React dashboard over the API; move `POST /pipeline/run` to `BackgroundTasks` + a status-polling endpoint instead of running synchronously.
 - **Deploy**: Docker Compose → AWS (ECS Fargate or Lambda, RDS with pgvector).

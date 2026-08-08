@@ -1,0 +1,35 @@
+name: Golden Eval (Fact-Checker)
+
+# Manually triggered only -- this makes real Anthropic API calls (one per
+# golden example) and costs real money, so it must never run automatically
+# on every push. Run this deliberately after changing the Fact-Checker's
+# prompt or model, per the eval-driven-development loop documented in
+# scripts/run_golden_eval.py and the README.
+#
+# Requires an ANTHROPIC_API_KEY repository secret to run.
+#
+# No Postgres service here on purpose: observability.py's record_llm_call()
+# fails open (logs a warning, never raises) when it can't reach a DB, so
+# the eval still runs and reports verdicts correctly without one -- this
+# workflow's job is checking the judge's verdicts, not testing persistence.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  golden-eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Run golden eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/run_golden_eval.py
