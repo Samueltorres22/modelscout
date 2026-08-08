@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+# Without this, `import modelscout` only resolves when pytest is invoked as
+# `python -m pytest` (which prepends the cwd to sys.path) -- bare `pytest`
+# does not. Verified as the actual cause of a CI failure: the GitHub Actions
+# workflow ran plain `pytest tests/ -v` and every test file failed to
+# collect with ModuleNotFoundError: No module named 'modelscout'. This makes
+# `pytest` work the same way regardless of how it's invoked, locally or in CI.
+pythonpath = ["."]
