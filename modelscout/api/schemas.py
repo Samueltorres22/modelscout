@@ -8,6 +8,27 @@ class RunPipelineRequest(BaseModel):
     limit: int = 20
 
 
+class PipelineRunAccepted(BaseModel):
+    """202 response for POST /pipeline/run -- the run has been scheduled,
+    not completed. Poll GET /pipeline/runs/{run_id} for its outcome.
+    """
+
+    run_id: str
+    status: str
+
+
+class PipelineRunStatus(BaseModel):
+    """GET /pipeline/runs/{run_id}. result is populated once status is
+    "completed" (same shape pipeline.run() has always returned); error is
+    populated once status is "failed".
+    """
+
+    run_id: str
+    status: str
+    result: dict | None = None
+    error: str | None = None
+
+
 class SearchResultItem(BaseModel):
     model_id: str
     chunk_text: str

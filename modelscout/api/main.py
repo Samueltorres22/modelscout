@@ -1,19 +1,20 @@
 """Minimal FastAPI app: a pipeline trigger and a real RAG query interface.
 
-Not a "serving layer" yet (no auth, no async job queue, no dashboard) --
-POST /pipeline/run runs synchronously, which is fine for proving the trigger
-path works end to end. A production version would move this to
-BackgroundTasks + a run-status endpoint.
+POST /pipeline/run schedules the run via BackgroundTasks and returns a
+run_id immediately (202) instead of blocking the request for however long
+ingestion + triage + extraction + fact-checking takes -- poll
+GET /pipeline/runs/{run_id} for its outcome. See api/run_registry.py for the
+(in-memory, single-process) status store backing that.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from modelscout.api import queries
+from modelscout.api import queries, run_registry
 from modelscout.api.schemas import (
     AgentCallSummary,
     DigestRun,
@@ -21,12 +22,14 @@ from modelscout.api.schemas import (
     ModelsResponse,
     ModelSummary,
     ObservabilitySummary,
+    PipelineRunAccepted,
+    PipelineRunStatus,
     RunPipelineRequest,
     RunsResponse,
     SearchResponse,
     SearchResultItem,
 )
-from modelscout.config import settings
+from modelscout.config import load_interest_profile, settings
 from modelscout.db import get_connection
 
 logging.basicConfig(level=logging.WARNING)
@@ -74,19 +77,47 @@ def health() -> dict:
     }
 
 
-@app.post("/pipeline/run")
-def pipeline_run(req: RunPipelineRequest) -> dict:
+def _execute_pipeline_run(run_id: str, profile_name: str, limit: int) -> None:
+    from modelscout.pipeline import run as run_pipeline
+
+    run_registry.mark_running(run_id)
+    try:
+        result = run_pipeline(profile_name, limit_per_tag=limit)
+        run_registry.mark_completed(run_id, result)
+    except Exception as exc:  # noqa: BLE001 -- this runs in a BackgroundTasks
+        # thread with no caller to propagate to; swallowing here and
+        # recording the failure in the registry is what makes it visible
+        # at all, instead of vanishing into an unhandled-exception log line
+        # while GET /pipeline/runs/{run_id} sits stuck on "running" forever.
+        run_registry.mark_failed(run_id, str(exc))
+
+
+@app.post("/pipeline/run", response_model=PipelineRunAccepted, status_code=202)
+def pipeline_run(req: RunPipelineRequest, background_tasks: BackgroundTasks) -> PipelineRunAccepted:
     if not settings.enable_ml_features:
         raise HTTPException(
             status_code=503,
             detail="Pipeline runs are disabled on this deployment (ENABLE_ML_FEATURES=false). Run locally instead.",
         )
-    from modelscout.pipeline import run as run_pipeline
 
+    # Validated synchronously so a bad profile_name still 404s immediately
+    # instead of only surfacing as a "failed" status after the fact.
     try:
-        return run_pipeline(req.profile_name, limit_per_tag=req.limit)
+        load_interest_profile(req.profile_name)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    run_id = run_registry.create_run()
+    background_tasks.add_task(_execute_pipeline_run, run_id, req.profile_name, req.limit)
+    return PipelineRunAccepted(run_id=run_id, status="pending")
+
+
+@app.get("/pipeline/runs/{run_id}", response_model=PipelineRunStatus)
+def pipeline_run_status(run_id: str) -> PipelineRunStatus:
+    run = run_registry.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Unknown run_id: {run_id}")
+    return PipelineRunStatus(run_id=run["run_id"], status=run["status"], result=run["result"], error=run["error"])
 
 
 @app.get("/search", response_model=SearchResponse)

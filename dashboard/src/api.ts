@@ -102,6 +102,15 @@ export interface PipelineRunResult {
   top_models: unknown[];
 }
 
+export type PipelineRunState = "pending" | "running" | "completed" | "failed";
+
+export interface PipelineRunStatus {
+  run_id: string;
+  status: PipelineRunState;
+  result: PipelineRunResult | null;
+  error: string | null;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, init);
   if (!response.ok) {
@@ -138,9 +147,12 @@ export const api = {
     ),
 
   runPipeline: (profileName: string, limit: number) =>
-    apiFetch<PipelineRunResult>("/pipeline/run", {
+    apiFetch<{ run_id: string; status: PipelineRunState }>("/pipeline/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ profile_name: profileName, limit }),
     }),
+
+  getPipelineRunStatus: (runId: string) =>
+    apiFetch<PipelineRunStatus>(`/pipeline/runs/${runId}`),
 };

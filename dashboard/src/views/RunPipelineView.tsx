@@ -1,27 +1,64 @@
-import { useState, type FormEvent } from "react";
-import { api, type PipelineRunResult } from "../api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { api, type PipelineRunResult, type PipelineRunState } from "../api";
+
+const POLL_INTERVAL_MS = 2000;
 
 export function RunPipelineView() {
   const [profileName, setProfileName] = useState("vlm_ocr");
   const [limit, setLimit] = useState(20);
-  const [running, setRunning] = useState(false);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [status, setStatus] = useState<PipelineRunState | null>(null);
   const [result, setResult] = useState<PipelineRunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pollHandle = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    return () => window.clearInterval(pollHandle.current);
+  }, []);
+
+  function stopPolling() {
+    window.clearInterval(pollHandle.current);
+    pollHandle.current = undefined;
+  }
+
+  async function pollStatus(id: string) {
+    try {
+      const s = await api.getPipelineRunStatus(id);
+      setStatus(s.status);
+      if (s.status === "completed") {
+        setResult(s.result);
+        stopPolling();
+      } else if (s.status === "failed") {
+        setError(s.error ?? "Pipeline run failed");
+        stopPolling();
+      }
+    } catch (err) {
+      setError(String(err));
+      stopPolling();
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setRunning(true);
+    stopPolling();
     setError(null);
     setResult(null);
+    setRunId(null);
     try {
-      const r = await api.runPipeline(profileName, limit);
-      setResult(r);
+      // POST /pipeline/run returns as soon as the run is scheduled (202) --
+      // ingestion + triage + extraction + fact-checking can take minutes,
+      // so the actual outcome comes from polling GET /pipeline/runs/{id}
+      // rather than blocking this request.
+      const { run_id } = await api.runPipeline(profileName, limit);
+      setRunId(run_id);
+      setStatus("pending");
+      pollHandle.current = window.setInterval(() => pollStatus(run_id), POLL_INTERVAL_MS);
     } catch (err) {
       setError(String(err));
-    } finally {
-      setRunning(false);
     }
   }
+
+  const running = status === "pending" || status === "running";
 
   return (
     <div>
@@ -49,9 +86,13 @@ export function RunPipelineView() {
           />
         </div>
         <button type="submit" disabled={running}>
-          {running ? "Running… (this ingests, triages, extracts, and fact-checks — can take a while)" : "Run pipeline"}
+          {running
+            ? `${status === "pending" ? "Scheduled" : "Running"}… (ingests, triages, extracts, and fact-checks — can take a while)`
+            : "Run pipeline"}
         </button>
       </form>
+
+      {runId && <p className="text-muted" style={{ fontSize: 12 }}>run_id: {runId}</p>}
 
       {error && <div className="error-box">{error}</div>}
 

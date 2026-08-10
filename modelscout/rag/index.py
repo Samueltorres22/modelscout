@@ -19,7 +19,14 @@ def index_model_readmes(conn, model_ids: list[str] | None = None) -> int:
     upserting into model_card_chunks. Returns the number of chunks written.
     """
     with conn.cursor() as cur:
-        if model_ids:
+        # model_ids is None -> index every model; model_ids == [] -> index
+        # none. `if model_ids:` would treat both the same (both falsy),
+        # which silently re-indexes the entire table on the empty-list case
+        # -- verified live: pipeline.run() always passes a list here, and a
+        # profile run where 0 candidates pass triage/filters hung for
+        # minutes re-embedding every existing model's README instead of
+        # doing nothing.
+        if model_ids is not None:
             cur.execute(
                 "SELECT model_id, readme_text FROM models WHERE model_id = ANY(%s)",
                 (model_ids,),

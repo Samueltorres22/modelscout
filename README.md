@@ -4,7 +4,7 @@
 
 ModelScout watches Hugging Face for new/trending models, filters them against a configurable **interest profile**, extracts real specs from the model card, fact-checks the declared benchmark claims, and produces a ranked digest — built to demonstrate real agentic-engineering practice (LangGraph orchestration, RAG, cost-aware model routing, eval-driven development), not a thin API wrapper.
 
-This is the **v1 vertical slice**: one complete, working path through the core architecture, including a Fact-Checker agent with its own golden regression suite, lightweight per-agent cost/latency observability, CI, and a React dashboard. A read-only slice is deployed live (see [Deploy](#deploy)); running the pipeline itself and prompt versioning are still local-only (see [Phase 2](#phase-2-not-built-yet)).
+This is the **v1 vertical slice**: one complete, working path through the core architecture, including a Fact-Checker agent with its own golden regression suite, lightweight per-agent cost/latency observability, CI, and a React dashboard. A read-only deploy path is built and verified (see [Deploy](#deploy)); running the pipeline itself and prompt versioning are still local-only (see [Phase 2](#phase-2-not-built-yet)).
 
 ## Architecture
 
@@ -92,7 +92,12 @@ Then try the API:
 ```bash
 uvicorn modelscout.api.main:app --reload
 curl "http://localhost:8000/search?q=lightweight vision model for document OCR&k=5"
+
+# POST /pipeline/run schedules the run and returns immediately (202) --
+# ingestion + triage + extraction + fact-checking runs in the background,
+# so poll the run_id it gives you for the actual outcome.
 curl -X POST http://localhost:8000/pipeline/run -H "Content-Type: application/json" -d "{\"profile_name\": \"vlm_ocr\", \"limit\": 20}"
+curl http://localhost:8000/pipeline/runs/<run_id from the response above>
 ```
 
 ### Run the Fact-Checker's golden eval
@@ -157,14 +162,17 @@ Several of these were found by running the real pipeline against real models, no
 - **`pipeline.py` is the only orchestrator.** Both `cli.py` and `POST /pipeline/run` call the exact same function — if you add a third entrypoint (a scheduled job, a Slack slash command), call `modelscout.pipeline.run()`, don't reimplement the flow.
 - **`db/schema.sql` only applies on first container init.** Postgres runs `docker-entrypoint-initdb.d` scripts once, on an empty volume. If you edit the schema after the volume already has data, apply the DDL by hand against the running container (`docker exec modelscout-postgres psql ...`) as well as updating `schema.sql` for fresh installs — there's no migration tool in this v1 scope.
 - **Anthropic calls already retry transient failures — verified from the SDK source, not assumed.** `_get_client()` sets `max_retries=3` explicitly; `anthropic._base_client`'s retry predicate retries on 408/409/429 and any 5xx with exponential backoff before a response ever reaches the tolerant-parser fallback path. Worth stating outright since it's easy to assume a raw API client has no retry behavior unless you check.
+- **`if model_ids:` is not the same check as `if model_ids is not None:` for a list argument — found live, not in review.** `index_model_readmes(conn, model_ids)` used the former to decide "index everything" vs. "index only these," which means `model_ids=[]` (a normal outcome — a run where 0 candidates passed triage/filters) fell into the same branch as `model_ids=None` and silently re-embedded every model already in the table. Surfaced as the dashboard's Run Pipeline tab hanging for minutes on what should have been an instant 0-candidate run. `tests/test_rag_index_integration.py` regression-tests the empty-list case specifically.
 
 ## Deploy
 
-The live deploy is **read-only by design** — it serves the catalog, run history, and observability data from real pipeline runs, but doesn't run the pipeline itself. Two reasons, not one: the Extractor/Fact-Checker/Triage stack needs heavy ML deps (torch, transformers, sentence-transformers) that don't fit a free-tier container's RAM, and a public `POST /pipeline/run` would let any visitor spend your `ANTHROPIC_API_KEY` with no rate limit. Both problems disappear if the endpoint just isn't there.
+The deploy is **read-only by design** — it serves the catalog, run history, and observability data from real pipeline runs, but doesn't run the pipeline itself. Two reasons, not one: the Extractor/Fact-Checker/Triage stack needs heavy ML deps (torch, transformers, sentence-transformers) that don't fit a free-tier container's RAM, and a public `POST /pipeline/run` would let any visitor spend your `ANTHROPIC_API_KEY` with no rate limit. Both problems disappear if the endpoint just isn't there.
 
 **Stack**: Supabase (Postgres + pgvector — same schema as local, `db/schema.sql`) → Render (FastAPI, `requirements-prod.txt`) → Vercel (the `dashboard/` Vite build). Local dev is unaffected — `docker-compose.yml` and `requirements.txt` (the full ML stack) still drive `docker compose up` + `uvicorn` on your machine exactly as before.
 
 **How `ENABLE_ML_FEATURES=false` works**: `modelscout/api/main.py` lazily imports `modelscout.pipeline` and `modelscout.rag.search` — the modules that pull in torch — *inside* the `/pipeline/run` and `/search` handlers, guarded by an early `if not settings.enable_ml_features: raise HTTPException(503, ...)`. So on Render, those two endpoints 503 immediately and torch/transformers/langgraph never get imported into the process at all; `/models`, `/models/{id}`, `/runs`, and `/observability/summary` are plain Postgres queries and don't care about the flag. Verified locally: `requirements-prod.txt` installed clean with zero ML packages, and a real run confirmed `sys.modules` never picks up `torch`/`transformers`/`langgraph` with the flag off.
+
+**Status**: the code and config below are built and verified locally (`requirements-prod.txt` installs clean, `ENABLE_ML_FEATURES=false` correctly 503s without importing torch, all four read endpoints serve real data). Not yet actually deployed — that just needs the account setup below, which nobody but the repo owner can do.
 
 ### Setup (one-time, done by hand in each provider's dashboard)
 
@@ -177,5 +185,4 @@ The live deploy is **read-only by design** — it serves the catalog, run histor
 ## Phase 2 (not built yet)
 
 - **Prompt versioning**: agent prompts live in code, not in a versioned/diffable store; no automated way yet to correlate a golden-eval run with the exact prompt version it tested.
-- **Async pipeline runs**: `POST /pipeline/run` is still synchronous even locally (fine for the current scope, but a long run blocks the request) — a production version would move this to `BackgroundTasks` + a status-polling endpoint, which is also a prerequisite for ever exposing pipeline runs publicly.
-- **Running the pipeline from the live deploy**: needs the async work above, a rate limit / auth in front of it, and a host with enough RAM for the ML stack — deliberately deferred, see [Deploy](#deploy).
+- **Running the pipeline from a public deploy**: `POST /pipeline/run` is async now (schedules via `BackgroundTasks`, returns a `run_id`, `GET /pipeline/runs/{run_id}` polls status — see `api/run_registry.py`), which removes the "blocks the request for minutes" blocker. What's still deliberately missing before exposing it publicly: a rate limit / auth in front of it (so a visitor can't spend the `ANTHROPIC_API_KEY` unbounded) and a host with enough RAM for the ML stack — see [Deploy](#deploy).
