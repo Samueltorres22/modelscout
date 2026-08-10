@@ -1,5 +1,7 @@
 # ModelScout — Multi-Agent Radar for Open-Source Models (v1 Vertical Slice)
 
+[![Tests](https://github.com/Samueltorres22/modelscout/actions/workflows/tests.yml/badge.svg)](https://github.com/Samueltorres22/modelscout/actions/workflows/tests.yml)
+
 ModelScout watches Hugging Face for new/trending models, filters them against a configurable **interest profile**, extracts real specs from the model card, fact-checks the declared benchmark claims, and produces a ranked digest — built to demonstrate real agentic-engineering practice (LangGraph orchestration, RAG, cost-aware model routing, eval-driven development), not a thin API wrapper.
 
 This is the **v1 vertical slice**: one complete, working path through the core architecture, including a Fact-Checker agent with its own golden regression suite, lightweight per-agent cost/latency observability, and CI. Deliberately out of scope for now (see [Phase 2](#phase-2-not-built-yet)): a dashboard, AWS deployment, and prompt versioning.
@@ -136,10 +138,10 @@ Several of these were found by running the real pipeline against real models, no
 - **Idempotent by design.** Re-running the same profile upserts on `model_id` rather than duplicating rows — safe to schedule on a cron without deduping logic elsewhere.
 - **`pipeline.py` is the only orchestrator.** Both `cli.py` and `POST /pipeline/run` call the exact same function — if you add a third entrypoint (a scheduled job, a Slack slash command), call `modelscout.pipeline.run()`, don't reimplement the flow.
 - **`db/schema.sql` only applies on first container init.** Postgres runs `docker-entrypoint-initdb.d` scripts once, on an empty volume. If you edit the schema after the volume already has data, apply the DDL by hand against the running container (`docker exec modelscout-postgres psql ...`) as well as updating `schema.sql` for fresh installs — there's no migration tool in this v1 scope.
+- **Anthropic calls already retry transient failures — verified from the SDK source, not assumed.** `_get_client()` sets `max_retries=3` explicitly; `anthropic._base_client`'s retry predicate retries on 408/409/429 and any 5xx with exponential backoff before a response ever reaches the tolerant-parser fallback path. Worth stating outright since it's easy to assume a raw API client has no retry behavior unless you check.
 
 ## Phase 2 (not built yet)
 
 - **Prompt versioning**: agent prompts live in code, not in a versioned/diffable store; no automated way yet to correlate a golden-eval run with the exact prompt version it tested.
-- **Retries on the Anthropic calls**: a transient API failure (rate limit, network blip) currently falls straight through to the tolerant parser's fallback path rather than retrying first.
 - **Serving**: React dashboard over the API; move `POST /pipeline/run` to `BackgroundTasks` + a status-polling endpoint instead of running synchronously.
 - **Deploy**: Docker Compose → AWS (ECS Fargate or Lambda, RDS with pgvector).

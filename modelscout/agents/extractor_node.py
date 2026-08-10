@@ -41,7 +41,15 @@ def _get_client() -> anthropic.Anthropic:
     if _client is None:
         with _client_lock:
             if _client is None:
-                _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                # max_retries is explicit rather than left at the SDK default
+                # (also 2) so it's visible here rather than something you'd
+                # only discover by reading anthropic's source: the SDK
+                # already retries with exponential backoff on 408/409/429
+                # and 5xx responses plus connection errors before a
+                # response ever reaches parse_claude_response's fallback
+                # path -- verified via anthropic._base_client's retry
+                # predicate, not assumed.
+                _client = anthropic.Anthropic(api_key=settings.anthropic_api_key, max_retries=3)
     return _client
 
 
