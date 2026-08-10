@@ -114,6 +114,24 @@ python scripts/cost_report.py --since 24h
 
 Cost estimation is opt-in: set `PRICE_PER_MTOK_INPUT` / `PRICE_PER_MTOK_OUTPUT` in `.env` (both required to enable it) if you want `$` figures. Deliberately unset by default rather than shipping a hardcoded per-model price table that goes stale.
 
+## Dashboard
+
+A React + TypeScript UI (`dashboard/`) over the API — the models catalog with fact-check verdicts, semantic search, a pipeline-run trigger, and the observability summary, browsable instead of requiring `curl`/`psql`. Its own Vite dev server, no build/deploy pipeline yet, no auth (local dev only, same as the API itself right now).
+
+```bash
+# terminal 1 -- the API (from the project root, with .venv active)
+uvicorn modelscout.api.main:app --reload
+
+# terminal 2 -- the dashboard
+cd dashboard
+npm install
+npm run dev
+```
+
+Open http://localhost:5173. The API's `CORSMiddleware` in `modelscout/api/main.py` explicitly allows `http://localhost:5173` — if you change the dashboard's dev port, update that allowlist too. To point the dashboard at a different API URL, copy `dashboard/.env.example` to `dashboard/.env.local` and set `VITE_API_BASE_URL`.
+
+No new backend concept here beyond four read-only endpoints (`GET /models`, `GET /models/{id}`, `GET /runs`, `GET /observability/summary`) that all do the same thing: join `models` against the *latest* row per model in `triage_results`/`extracted_specs`/`fact_checks` via `LEFT JOIN LATERAL ... ORDER BY ... LIMIT 1` (see `modelscout/api/queries.py`) — those three tables can have multiple rows per model from re-ingestion, the read-side of the same idempotency `pipeline.py` already handles on writes.
+
 ## CI
 
 - **`.github/workflows/tests.yml`** — runs `pytest tests/` on every push/PR to `main`. No API key or database needed: every test exercises pure logic (filters, the tolerant parsers) against synthetic inputs.
