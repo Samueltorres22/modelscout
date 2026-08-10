@@ -1,12 +1,17 @@
 name: Tests
 
 # Runs the unit test suite on every push/PR to main. Deliberately does NOT
-# need ANTHROPIC_API_KEY or a running Postgres -- every test in tests/
-# exercises pure logic (filters, the tolerant parsers) against synthetic
-# inputs, never a live API or DB call. The golden eval against the real
-# Fact-Checker judge is a SEPARATE, manually-triggered workflow
-# (golden-eval.yml) because it costs real money and shouldn't run on every
-# push.
+# need ANTHROPIC_API_KEY -- every test exercises pure logic (filters, the
+# tolerant parsers) against synthetic inputs, never a live API call. The
+# golden eval against the real Fact-Checker judge is a SEPARATE, manually-
+# triggered workflow (golden-eval.yml) because it costs real money and
+# shouldn't run on every push.
+#
+# DOES run a real Postgres service so tests/test_persist_integration.py
+# actually runs here instead of skipping -- that file is the only one that
+# touches the DB (upsert idempotency, JSONB serialization of non-primitive
+# card_data), and skipping it in CI would mean nothing ever exercised that
+# code path outside a developer's own machine.
 
 on:
   push:
@@ -17,6 +22,25 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: modelscout
+          POSTGRES_PASSWORD: modelscout_dev_only
+          POSTGRES_DB: modelscout
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U modelscout -d modelscout"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://modelscout:modelscout_dev_only@localhost:5432/modelscout
+
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +53,9 @@ jobs:
       # there while everything else still resolves from PyPI as normal.
       - name: Install dependencies
         run: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Apply schema
+        run: PGPASSWORD=modelscout_dev_only psql -h localhost -U modelscout -d modelscout -f db/schema.sql
 
       - name: Run tests
         run: pytest tests/ -v
