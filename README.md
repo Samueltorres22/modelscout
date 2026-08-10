@@ -4,7 +4,7 @@
 
 ModelScout watches Hugging Face for new/trending models, filters them against a configurable **interest profile**, extracts real specs from the model card, fact-checks the declared benchmark claims, and produces a ranked digest — built to demonstrate real agentic-engineering practice (LangGraph orchestration, RAG, cost-aware model routing, eval-driven development), not a thin API wrapper.
 
-This is the **v1 vertical slice**: one complete, working path through the core architecture, including a Fact-Checker agent with its own golden regression suite, lightweight per-agent cost/latency observability, and CI. Deliberately out of scope for now (see [Phase 2](#phase-2-not-built-yet)): a dashboard, AWS deployment, and prompt versioning.
+This is the **v1 vertical slice**: one complete, working path through the core architecture, including a Fact-Checker agent with its own golden regression suite, lightweight per-agent cost/latency observability, CI, and a React dashboard. Deliberately out of scope for now (see [Phase 2](#phase-2-not-built-yet)): AWS deployment and prompt versioning.
 
 ## Architecture
 
@@ -161,5 +161,5 @@ Several of these were found by running the real pipeline against real models, no
 ## Phase 2 (not built yet)
 
 - **Prompt versioning**: agent prompts live in code, not in a versioned/diffable store; no automated way yet to correlate a golden-eval run with the exact prompt version it tested.
-- **Serving**: React dashboard over the API; move `POST /pipeline/run` to `BackgroundTasks` + a status-polling endpoint instead of running synchronously.
-- **Deploy**: Docker Compose → AWS (ECS Fargate or Lambda, RDS with pgvector).
+- **Async pipeline runs**: `POST /pipeline/run` is still synchronous (fine for the dashboard's current scope, but a long run blocks the request) — a production version would move this to `BackgroundTasks` + a status-polling endpoint.
+- **Deploy**: Docker Compose → AWS (ECS Fargate or Lambda, RDS with pgvector). The dashboard has no build/deploy story yet either (dev server only).
