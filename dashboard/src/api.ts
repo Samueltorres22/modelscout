@@ -106,7 +106,16 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, init);
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`${response.status} ${response.statusText}: ${body}`);
+    // FastAPI's HTTPException bodies are {"detail": "..."} -- surface that
+    // directly (e.g. the ENABLE_ML_FEATURES=false message) rather than the
+    // raw JSON blob, falling back to the raw body for anything else.
+    let detail: string | undefined;
+    try {
+      detail = (JSON.parse(body) as { detail?: string }).detail;
+    } catch {
+      // not JSON -- fall through to the raw body
+    }
+    throw new Error(detail ?? `${response.status} ${response.statusText}: ${body}`);
   }
   return response.json() as Promise<T>;
 }

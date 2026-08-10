@@ -1,0 +1,20 @@
+# Render Blueprint for the read-only production API (see README's Deploy
+# section). Deliberately does NOT provision a Render Postgres -- the DB is
+# Supabase (needs pgvector, which Render's managed Postgres has historically
+# not offered), so DATABASE_URL is set by hand in the dashboard instead of
+# via a `fromDatabase` reference here.
+services:
+  - type: web
+    name: modelscout-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-prod.txt
+    startCommand: uvicorn modelscout.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ENABLE_ML_FEATURES
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_EXTRA_ORIGINS
+        sync: false

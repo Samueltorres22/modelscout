@@ -26,10 +26,8 @@ from modelscout.api.schemas import (
     SearchResponse,
     SearchResultItem,
 )
+from modelscout.config import settings
 from modelscout.db import get_connection
-from modelscout.pipeline import run as run_pipeline
-from modelscout.rag.embeddings import _get_model
-from modelscout.rag.search import semantic_search
 
 logging.basicConfig(level=logging.WARNING)
 logging.getLogger("modelscout").setLevel(logging.INFO)
@@ -37,10 +35,13 @@ logging.getLogger("modelscout").setLevel(logging.INFO)
 app = FastAPI(title="ModelScout API", version="0.1.0")
 
 # The dashboard (dashboard/) runs as its own Vite dev server on a different
-# origin/port than this API -- local dev only, no auth on either side yet.
+# origin/port than this API in local dev -- a deployed dashboard's origin is
+# added via CORS_EXTRA_ORIGINS so the same image works in both places.
+_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_origins += [o.strip() for o in settings.cors_extra_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -56,17 +57,32 @@ def health() -> dict:
     except Exception:  # noqa: BLE001 -- a health check must report unhealthy on ANY failure, not just a chosen subset
         db_ok = False
 
-    try:
-        _get_model()
-        embedding_model_ok = True
-    except Exception:  # noqa: BLE001 -- same as above
-        embedding_model_ok = False
+    embedding_model_ok = None
+    if settings.enable_ml_features:
+        try:
+            from modelscout.rag.embeddings import _get_model
 
-    return {"db_ok": db_ok, "embedding_model_ok": embedding_model_ok}
+            _get_model()
+            embedding_model_ok = True
+        except Exception:  # noqa: BLE001 -- same as above
+            embedding_model_ok = False
+
+    return {
+        "db_ok": db_ok,
+        "embedding_model_ok": embedding_model_ok,
+        "ml_features_enabled": settings.enable_ml_features,
+    }
 
 
 @app.post("/pipeline/run")
 def pipeline_run(req: RunPipelineRequest) -> dict:
+    if not settings.enable_ml_features:
+        raise HTTPException(
+            status_code=503,
+            detail="Pipeline runs are disabled on this deployment (ENABLE_ML_FEATURES=false). Run locally instead.",
+        )
+    from modelscout.pipeline import run as run_pipeline
+
     try:
         return run_pipeline(req.profile_name, limit_per_tag=req.limit)
     except FileNotFoundError as exc:
@@ -75,6 +91,13 @@ def pipeline_run(req: RunPipelineRequest) -> dict:
 
 @app.get("/search", response_model=SearchResponse)
 def search(q: str, k: int = 5) -> SearchResponse:
+    if not settings.enable_ml_features:
+        raise HTTPException(
+            status_code=503,
+            detail="Semantic search is disabled on this deployment (ENABLE_ML_FEATURES=false). Run locally instead.",
+        )
+    from modelscout.rag.search import semantic_search
+
     with get_connection() as conn:
         results = semantic_search(conn, q, k=k)
 
