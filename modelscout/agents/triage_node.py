@@ -34,7 +34,6 @@ from transformers import pipeline
 
 from modelscout.agents.state import ModelState
 
-
 _MODEL_NAME = "facebook/bart-large-mnli"
 
 _classifier = None
@@ -72,7 +71,7 @@ def classify_relevance(model_id: str, tags: list[str], candidate_labels: list[st
     text = _classification_text(model_id, tags)
 
     result = classifier(text, candidate_labels=candidate_labels, multi_label=True)
-    labels_to_scores = dict(zip(result["labels"], result["scores"]))
+    labels_to_scores = dict(zip(result["labels"], result["scores"], strict=True))
     target_label = candidate_labels[0]
     target_score = labels_to_scores[target_label]
     return target_label, target_score, labels_to_scores

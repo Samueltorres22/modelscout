@@ -79,7 +79,7 @@ ORDER BY agent_name
 
 def _rows_to_dicts(cur) -> list[dict]:
     columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+    return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]
 
 
 def get_models_catalog(conn) -> list[dict]:

@@ -57,6 +57,7 @@ regex==2026.7.19
 requests==2.34.2
 requests-toolbelt==1.0.0
 rich==15.0.0
+ruff==0.16.2
 safetensors==0.8.0
 scikit-learn==1.9.0
 scipy==1.18.0

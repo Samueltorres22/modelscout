@@ -153,8 +153,7 @@ def parse_claude_response(response: anthropic.types.Message, model_id: str) -> E
     raw_text = "\n".join(text_parts)
     cleaned = raw_text.strip()
     for fence in ("```json", "```"):
-        if cleaned.startswith(fence):
-            cleaned = cleaned[len(fence) :]
+        cleaned = cleaned.removeprefix(fence)
     cleaned = cleaned.strip().removesuffix("```").strip()
 
     parsed = None

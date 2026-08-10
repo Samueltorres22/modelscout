@@ -31,9 +31,8 @@ TEST_MODEL_ID = "test/idempotency-check-do-not-use-as-real-model-id"
 
 def _db_available() -> bool:
     try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
         return True
     except Exception:  # noqa: BLE001
         return False
@@ -43,18 +42,18 @@ pytestmark = pytest.mark.skipif(not _db_available(), reason="Postgres not reacha
 
 
 def _model(**overrides) -> CandidateModel:
-    base = dict(
-        model_id=TEST_MODEL_ID,
-        pipeline_tag="test-tag",
-        downloads=1,
-        likes=1,
-        last_modified=None,
-        created_at=None,
-        tags=["test"],
-        card_data={"license": "mit"},
-        params_billion=1.0,
-        readme_text="test readme for integration test",
-    )
+    base = {
+        "model_id": TEST_MODEL_ID,
+        "pipeline_tag": "test-tag",
+        "downloads": 1,
+        "likes": 1,
+        "last_modified": None,
+        "created_at": None,
+        "tags": ["test"],
+        "card_data": {"license": "mit"},
+        "params_billion": 1.0,
+        "readme_text": "test readme for integration test",
+    }
     base.update(overrides)
     return CandidateModel(**base)
 
@@ -62,9 +61,8 @@ def _model(**overrides) -> CandidateModel:
 @pytest.fixture(autouse=True)
 def _cleanup_test_row():
     yield
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM models WHERE model_id = %s", (TEST_MODEL_ID,))
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM models WHERE model_id = %s", (TEST_MODEL_ID,))
 
 
 def _count_test_rows(conn) -> int:

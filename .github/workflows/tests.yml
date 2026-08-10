@@ -54,6 +54,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
+      - name: Lint (ruff)
+        run: ruff check .
+
       - name: Apply schema
         run: PGPASSWORD=modelscout_dev_only psql -h localhost -U modelscout -d modelscout -f db/schema.sql
 

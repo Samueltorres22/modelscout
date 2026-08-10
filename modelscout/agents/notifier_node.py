@@ -7,8 +7,7 @@ node fires.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 
 from modelscout.agents.state import PipelineState
 from modelscout.config import PROJECT_ROOT
@@ -108,12 +107,14 @@ def build_digest(state: PipelineState) -> str:
 
     lines = [
         f"# ModelScout Digest — {profile['name']}",
-        f"_Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_",
+        f"_Generated {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}_",
         "",
-        f"**{n_ingested}** candidates ingested → **{n_triage_pass}** passed triage "
-        f"(screened locally, $0 API cost) → **{n_extracted}** sent to Claude for extraction "
-        f"(**{n_parse_errors}** parse error(s)) → **{n_fact_checked}** fact-checked "
-        f"(**{n_implausible}** flagged implausible).",
+        (
+            f"**{n_ingested}** candidates ingested → **{n_triage_pass}** passed triage "
+            f"(screened locally, $0 API cost) → **{n_extracted}** sent to Claude for extraction "
+            f"(**{n_parse_errors}** parse error(s)) → **{n_fact_checked}** fact-checked "
+            f"(**{n_implausible}** flagged implausible)."
+        ),
         "",
         "---",
         "",
@@ -133,7 +134,7 @@ def notifier_node(state: PipelineState) -> dict:
     output_dir = PROJECT_ROOT / profile.get("notify", {}).get("output_dir", "digests")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
     path = output_dir / f"{date_str}-{profile['name']}.md"
     path.write_text(digest_markdown, encoding="utf-8")
 

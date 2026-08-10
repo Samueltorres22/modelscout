@@ -24,11 +24,11 @@ def passes_filters(model: CandidateModel, profile: InterestProfile) -> bool:
     if profile.keywords_include and not any(kw.lower() in text for kw in profile.keywords_include):
         return False
 
-    if profile.max_params_billion is not None and model.params_billion is not None:
-        if model.params_billion > profile.max_params_billion:
-            return False
-
-    return True
+    return not (
+        profile.max_params_billion is not None
+        and model.params_billion is not None
+        and model.params_billion > profile.max_params_billion
+    )
 
 
 def filter_candidates(models: list[CandidateModel], profile: InterestProfile) -> list[CandidateModel]:

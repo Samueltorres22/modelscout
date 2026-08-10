@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
@@ -63,7 +63,7 @@ def extract_param_count(model_id: str, tags: list[str], safetensors_total: int |
 def fetch_readme(model_id: str) -> str:
     try:
         path = hf_hub_download(repo_id=model_id, filename="README.md")
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             return f.read()
     except (EntryNotFoundError, RepositoryNotFoundError):
         return ""
@@ -78,7 +78,7 @@ def search_candidate_models(profile: InterestProfile, limit_per_tag: int = 20) -
     apply keyword or param-size filtering -- see ingestion/filters.py for that
     (kept separate so filtering logic is unit-testable without network calls).
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=profile.lookback_days)
+    cutoff = datetime.now(UTC) - timedelta(days=profile.lookback_days)
     seen: dict[str, CandidateModel] = {}
 
     tags = profile.pipeline_tags or [None]

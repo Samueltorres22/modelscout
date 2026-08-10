@@ -45,11 +45,10 @@ def record_llm_call(agent_name: str, model_id: str | None, model: str, response,
     cost = estimate_cost_usd(input_tokens, output_tokens)
 
     try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    _INSERT_SQL,
-                    (agent_name, model_id, model, input_tokens, output_tokens, latency_ms, cost),
-                )
-    except Exception as exc:  # noqa: BLE001
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                _INSERT_SQL,
+                (agent_name, model_id, model, input_tokens, output_tokens, latency_ms, cost),
+            )
+    except Exception as exc:  # noqa: BLE001 -- telemetry must never break the pipeline it's observing
         logger.warning("Failed to record LLM call telemetry (pipeline continues): %s", exc)

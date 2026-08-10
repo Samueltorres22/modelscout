@@ -6,31 +6,31 @@ from modelscout.ingestion.hf_client import CandidateModel
 
 
 def _profile(**overrides) -> InterestProfile:
-    base = dict(
-        name="test",
-        pipeline_tags=["image-text-to-text"],
-        keywords_include=["ocr"],
-        keywords_exclude=["audio"],
-        max_params_billion=5.0,
-        triage=TriageConfig(candidate_labels=["a", "b"]),
-    )
+    base = {
+        "name": "test",
+        "pipeline_tags": ["image-text-to-text"],
+        "keywords_include": ["ocr"],
+        "keywords_exclude": ["audio"],
+        "max_params_billion": 5.0,
+        "triage": TriageConfig(candidate_labels=["a", "b"]),
+    }
     base.update(overrides)
     return InterestProfile.model_validate(base)
 
 
 def _model(**overrides) -> CandidateModel:
-    base = dict(
-        model_id="org/some-ocr-model-2b",
-        pipeline_tag="image-text-to-text",
-        downloads=1000,
-        likes=10,
-        last_modified=None,
-        created_at=None,
-        tags=["vision"],
-        card_data={},
-        params_billion=2.0,
-        readme_text="This model does OCR on documents.",
-    )
+    base = {
+        "model_id": "org/some-ocr-model-2b",
+        "pipeline_tag": "image-text-to-text",
+        "downloads": 1000,
+        "likes": 10,
+        "last_modified": None,
+        "created_at": None,
+        "tags": ["vision"],
+        "card_data": {},
+        "params_billion": 2.0,
+        "readme_text": "This model does OCR on documents.",
+    }
     base.update(overrides)
     return CandidateModel(**base)
 

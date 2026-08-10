@@ -37,10 +37,9 @@ def main() -> int:
         where_clause = "WHERE called_at >= now() - %s"
         params = (_parse_since(args.since),)
 
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
                 SELECT
                     agent_name,
                     count(*) AS n_calls,
@@ -53,9 +52,9 @@ def main() -> int:
                 GROUP BY agent_name
                 ORDER BY agent_name
                 """,
-                params,
-            )
-            rows = cur.fetchall()
+            params,
+        )
+        rows = cur.fetchall()
 
     if not rows:
         print("No LLM calls recorded yet (llm_calls table is empty for this window).")

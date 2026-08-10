@@ -49,18 +49,17 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict:
     try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                cur.fetchone()
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
         db_ok = True
-    except Exception:
+    except Exception:  # noqa: BLE001 -- a health check must report unhealthy on ANY failure, not just a chosen subset
         db_ok = False
 
     try:
         _get_model()
         embedding_model_ok = True
-    except Exception:
+    except Exception:  # noqa: BLE001 -- same as above
         embedding_model_ok = False
 
     return {"db_ok": db_ok, "embedding_model_ok": embedding_model_ok}

@@ -21,9 +21,9 @@ def main() -> int:
     ok = True
 
     try:
+        import sentence_transformers  # noqa: F401
         import torch  # noqa: F401
         import transformers  # noqa: F401
-        import sentence_transformers  # noqa: F401
 
         print("[OK] torch / transformers / sentence-transformers import correctly")
     except ImportError as exc:
@@ -36,10 +36,9 @@ def main() -> int:
     try:
         from modelscout.db import get_connection
 
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                cur.fetchone()
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
         print("[OK] Postgres connection succeeded")
     except Exception as exc:  # noqa: BLE001
         ok = False

@@ -6,3 +6,38 @@
 # collect with ModuleNotFoundError: No module named 'modelscout'. This makes
 # `pytest` work the same way regardless of how it's invoked, locally or in CI.
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+# Explicit selection rather than relying on ruff's own default set, which
+# has changed size significantly across ruff versions (verified: 0.16.2's
+# default flagged far more than the classic E4/E7/E9/F starter set) -- pin
+# it so a future ruff upgrade in CI can't silently start flagging (or
+# stop flagging) a different set of things.
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes (unused imports/vars, undefined names)
+    "I",    # import sorting
+    "UP",   # pyupgrade (modern Python idioms)
+    "B",    # flake8-bugbear (common bug patterns)
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "BLE",  # flake8-blind-except -- deliberate uses are suppressed inline with a reason, see below
+    "ISC",  # implicit string concatenation
+    "FURB", # refurb (modern idioms, e.g. str.removeprefix over slicing)
+]
+# Blind `except Exception` is deliberate in a few specific, commented
+# spots (health checks, telemetry that must never break the pipeline it's
+# observing) -- suppressed there with an inline `# noqa: BLE001` and a
+# reason, not globally disabled, so a genuinely careless blind-except
+# elsewhere still gets flagged.
+ignore = [
+    "E501", # line-too-long -- several agent system prompts and JSON-schema
+            # `description` fields are deliberately long natural-language
+            # strings; wrapping them at 120 chars hurts readability more
+            # than it helps, and this project has no code that's long
+            # because it's tangled rather than because it's prose.
+]

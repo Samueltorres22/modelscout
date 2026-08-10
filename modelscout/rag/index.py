@@ -35,7 +35,7 @@ def index_model_readmes(conn, model_ids: list[str] | None = None) -> int:
             if not chunks:
                 continue
             vectors = embed_passages(chunks)
-            for idx, (text, vector) in enumerate(zip(chunks, vectors)):
+            for idx, (text, vector) in enumerate(zip(chunks, vectors, strict=True)):
                 cur.execute(_UPSERT_CHUNK_SQL, (model_id, idx, text, vector))
             total_chunks += len(chunks)
 

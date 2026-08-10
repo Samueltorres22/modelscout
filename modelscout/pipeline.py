@@ -7,7 +7,7 @@ than two pipelines that can silently drift apart.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from modelscout.agents.graph import build_graph
@@ -171,7 +171,7 @@ def run(profile_name: str, limit_per_tag: int = 20) -> dict:
         n_implausible,
     )
 
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
     digest_path = Path("digests") / f"{date_str}-{profile.name}.md"
 
     with get_connection() as conn:
