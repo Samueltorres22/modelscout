@@ -22,6 +22,7 @@ import time
 
 import anthropic
 
+from modelscout.agents.prompts import prompt_version
 from modelscout.agents.schemas import ExtractedModelSpecs
 from modelscout.agents.state import ModelState
 from modelscout.config import settings
@@ -108,6 +109,7 @@ _SYSTEM_PROMPT = (
     "use null (or an empty array for list fields) rather than guessing. "
     "Call the extract_model_specs tool exactly once with your extraction."
 )
+_PROMPT_VERSION = prompt_version(_SYSTEM_PROMPT)
 
 
 def _bracket_match_json(text: str) -> dict | None:
@@ -194,7 +196,7 @@ def extract_specs(model_id: str, readme_text: str) -> ExtractedModelSpecs:
         ],
     )
     latency_ms = int((time.perf_counter() - start) * 1000)
-    record_llm_call("extractor", model_id, settings.anthropic_extractor_model, response, latency_ms)
+    record_llm_call("extractor", model_id, settings.anthropic_extractor_model, response, latency_ms, _PROMPT_VERSION)
     return parse_claude_response(response, model_id)
 
 

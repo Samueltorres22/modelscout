@@ -24,8 +24,10 @@ from modelscout.db import get_connection
 logger = logging.getLogger(__name__)
 
 _INSERT_SQL = """
-INSERT INTO llm_calls (agent_name, model_id, model, input_tokens, output_tokens, latency_ms, estimated_cost_usd)
-VALUES (%s, %s, %s, %s, %s, %s, %s)
+INSERT INTO llm_calls (
+    agent_name, model_id, model, input_tokens, output_tokens, latency_ms, estimated_cost_usd, prompt_version
+)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
@@ -38,7 +40,14 @@ def estimate_cost_usd(input_tokens: int, output_tokens: int) -> float | None:
     )
 
 
-def record_llm_call(agent_name: str, model_id: str | None, model: str, response, latency_ms: int) -> None:
+def record_llm_call(
+    agent_name: str,
+    model_id: str | None,
+    model: str,
+    response,
+    latency_ms: int,
+    prompt_version: str | None = None,
+) -> None:
     usage = getattr(response, "usage", None)
     input_tokens = getattr(usage, "input_tokens", 0) if usage else 0
     output_tokens = getattr(usage, "output_tokens", 0) if usage else 0
@@ -48,7 +57,7 @@ def record_llm_call(agent_name: str, model_id: str | None, model: str, response,
         with get_connection() as conn, conn.cursor() as cur:
             cur.execute(
                 _INSERT_SQL,
-                (agent_name, model_id, model, input_tokens, output_tokens, latency_ms, cost),
+                (agent_name, model_id, model, input_tokens, output_tokens, latency_ms, cost, prompt_version),
             )
     except Exception as exc:  # noqa: BLE001 -- telemetry must never break the pipeline it's observing
         logger.warning("Failed to record LLM call telemetry (pipeline continues): %s", exc)

@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     output_tokens        INT NOT NULL,
     latency_ms           INT NOT NULL,
     estimated_cost_usd   DOUBLE PRECISION,                 -- NULL unless price_per_mtok_* configured
+    prompt_version       TEXT,                              -- content hash of the system prompt used, see agents/prompts.py
     called_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

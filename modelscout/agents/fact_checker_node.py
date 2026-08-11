@@ -26,6 +26,7 @@ import logging
 import time
 
 from modelscout.agents.extractor_node import _bracket_match_json, _get_client
+from modelscout.agents.prompts import prompt_version
 from modelscout.agents.schemas import ExtractedModelSpecs, FactCheckResult
 from modelscout.config import settings
 from modelscout.observability import record_llm_call
@@ -80,6 +81,7 @@ Check for:
 Ground every flag in something specific you can point to -- no generic "benchmarks should be independently verified" boilerplate. If nothing here is suspicious, say so plainly rather than inventing a concern; mixed/modest results across multiple named benchmarks are typically a sign of an honest card, not a problem.
 
 Work through the fields in the order the tool asks for them: list flags and consistency_issues first, then synthesize them into `reasoning` (never leave it blank), then set `confidence`, and only then commit to `verdict` as the last field. The verdict is a conclusion FROM your reasoning, not a separate judgment -- if your own reasoning says something looks fabricated, mislabeled, or implausible for the model's size, `verdict` must be "implausible", not "plausible". Call the submit_fact_check tool exactly once."""
+_PROMPT_VERSION = prompt_version(_SYSTEM_PROMPT)
 
 
 def _build_user_content(model_id: str, extracted: ExtractedModelSpecs) -> str:
@@ -191,5 +193,7 @@ def fact_check(model_id: str, extracted: ExtractedModelSpecs) -> FactCheckResult
         messages=[{"role": "user", "content": _build_user_content(model_id, extracted)}],
     )
     latency_ms = int((time.perf_counter() - start) * 1000)
-    record_llm_call("fact_checker", model_id, settings.anthropic_extractor_model, response, latency_ms)
+    record_llm_call(
+        "fact_checker", model_id, settings.anthropic_extractor_model, response, latency_ms, _PROMPT_VERSION
+    )
     return parse_fact_check_response(response, model_id)

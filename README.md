@@ -119,6 +119,8 @@ python scripts/cost_report.py --since 24h
 
 Cost estimation is opt-in: set `PRICE_PER_MTOK_INPUT` / `PRICE_PER_MTOK_OUTPUT` in `.env` (both required to enable it) if you want `$` figures. Deliberately unset by default rather than shipping a hardcoded per-model price table that goes stale.
 
+**Prompt versioning**: `modelscout/agents/prompts.py`'s `prompt_version()` is a content hash (first 12 hex chars of SHA-256) of an agent's `_SYSTEM_PROMPT` string, computed once at import time — `extractor_node._PROMPT_VERSION` and `fact_checker_node._PROMPT_VERSION`. Not a manually bumped semver: the version changes automatically and *only* when the prompt text actually changes, so there's no separate bookkeeping step to forget. It's written to `llm_calls.prompt_version` on every call (so any cost/latency figure is traceable back to the exact prompt that produced it) and printed by `scripts/run_golden_eval.py`, which is the concrete problem this solves — a golden-eval pass rate is now reported *against* an exact, verifiable prompt version instead of floating free of one.
+
 ## Dashboard
 
 A React + TypeScript UI (`dashboard/`) over the API — the models catalog with fact-check verdicts, semantic search, an async pipeline-run trigger, and the observability summary, browsable instead of requiring `curl`/`psql`. Its own Vite dev server for local work; see [Deploy](#deploy) for the production build. No auth yet (same as the API itself right now).
@@ -187,5 +189,4 @@ The deploy is **read-only by design** — it serves the catalog, run history, an
 
 ## Phase 2 (not built yet)
 
-- **Prompt versioning**: agent prompts live in code, not in a versioned/diffable store; no automated way yet to correlate a golden-eval run with the exact prompt version it tested.
 - **Running the pipeline from a public deploy**: `POST /pipeline/run` is async now (schedules via `BackgroundTasks`, returns a `run_id`, `GET /pipeline/runs/{run_id}` polls status — see `api/run_registry.py`), which removes the "blocks the request for minutes" blocker. What's still deliberately missing before exposing it publicly: a rate limit / auth in front of it (so a visitor can't spend the `ANTHROPIC_API_KEY` unbounded) and a host with enough RAM for the ML stack — see [Deploy](#deploy).

@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import yaml
 
-from modelscout.agents.fact_checker_node import fact_check
+from modelscout.agents.fact_checker_node import _PROMPT_VERSION, fact_check
 from modelscout.agents.schemas import ExtractedModelSpecs
 
 GOLDEN_PATH = Path(__file__).resolve().parent.parent / "config" / "golden" / "fact_check_examples.yaml"
@@ -52,6 +52,12 @@ def main() -> int:
     with GOLDEN_PATH.open("r", encoding="utf-8") as f:
         examples = yaml.safe_load(f)
 
+    # A content hash of _SYSTEM_PROMPT (see agents/prompts.py), not a manually
+    # bumped version number -- this is what makes the pass rate below
+    # traceable to an exact prompt without also having to record/check out a
+    # git SHA: the same prompt text always produces the same version string.
+    print(f"Fact-Checker prompt_version: {_PROMPT_VERSION}")
+
     results = []
     for ex in examples:
         specs = ExtractedModelSpecs.model_validate(ex["extracted"])
@@ -72,7 +78,10 @@ def main() -> int:
 
     pass_rate = n_passed / len(results)
     print("-" * 90)
-    print(f"{n_passed}/{len(results)} golden examples matched their expected verdict bucket ({pass_rate:.0%}).\n")
+    print(
+        f"{n_passed}/{len(results)} golden examples matched their expected verdict bucket ({pass_rate:.0%}) "
+        f"against prompt_version {_PROMPT_VERSION}.\n"
+    )
 
     if n_passed < len(results):
         print("Some examples missed their expected bucket. This isn't necessarily a bug -- an")
