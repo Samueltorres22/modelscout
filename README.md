@@ -121,7 +121,7 @@ Cost estimation is opt-in: set `PRICE_PER_MTOK_INPUT` / `PRICE_PER_MTOK_OUTPUT` 
 
 ## Dashboard
 
-A React + TypeScript UI (`dashboard/`) over the API — the models catalog with fact-check verdicts, semantic search, a pipeline-run trigger, and the observability summary, browsable instead of requiring `curl`/`psql`. Its own Vite dev server, no build/deploy pipeline yet, no auth (local dev only, same as the API itself right now).
+A React + TypeScript UI (`dashboard/`) over the API — the models catalog with fact-check verdicts, semantic search, an async pipeline-run trigger, and the observability summary, browsable instead of requiring `curl`/`psql`. Its own Vite dev server for local work; see [Deploy](#deploy) for the production build. No auth yet (same as the API itself right now).
 
 ```bash
 # terminal 1 -- the API (from the project root, with .venv active)
@@ -137,9 +137,12 @@ Open http://localhost:5173. The API's `CORSMiddleware` in `modelscout/api/main.p
 
 No new backend concept here beyond four read-only endpoints (`GET /models`, `GET /models/{id}`, `GET /runs`, `GET /observability/summary`) that all do the same thing: join `models` against the *latest* row per model in `triage_results`/`extracted_specs`/`fact_checks` via `LEFT JOIN LATERAL ... ORDER BY ... LIMIT 1` (see `modelscout/api/queries.py`) — those three tables can have multiple rows per model from re-ingestion, the read-side of the same idempotency `pipeline.py` already handles on writes.
 
+`npm test` (Vitest + React Testing Library, `dashboard/src/views/*.test.tsx`) covers all four views against a mocked `../api` — loading/error/empty states, the Models table's expand-on-click detail fetch, and Run Pipeline's real polling loop (schedule → running → completed/failed), which is exactly the request/response contract most likely to silently break on a refactor since nothing else in the type system enforces it end to end.
+
 ## CI
 
-- **`.github/workflows/tests.yml`** — runs `pytest tests/` on every push/PR to `main`. No API key or database needed: every test exercises pure logic (filters, the tolerant parsers) against synthetic inputs.
+- **`.github/workflows/tests.yml`**, `test` job — `ruff check .` then `pytest tests/` on every push/PR to `main`, against a real `pgvector/pgvector:pg16` service container (the DB-touching tests skip rather than fail if Postgres isn't reachable, but CI always has it). No `ANTHROPIC_API_KEY` needed: every test exercises pure logic (filters, the tolerant parsers) or a mocked/local DB, never a live Claude call.
+- **`.github/workflows/tests.yml`**, `dashboard-test` job — `npm run build` (type-checks) then `npm test` (Vitest + React Testing Library) for `dashboard/`, in parallel with `test`, no Postgres needed since every `../api` call in those tests is mocked.
 - **`.github/workflows/golden-eval.yml`** — manually triggered only (`workflow_dispatch`), never on push, because it costs real money. Needs an `ANTHROPIC_API_KEY` repository secret. Runs `scripts/run_golden_eval.py` deliberately, e.g. after changing the Fact-Checker's prompt.
 
 ## Tuning
