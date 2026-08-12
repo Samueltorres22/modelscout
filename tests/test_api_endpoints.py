@@ -146,6 +146,36 @@ def test_get_model_detail_404_for_unknown_model():
     assert resp.status_code == 404
 
 
+def test_get_model_detail_handles_model_with_no_downstream_rows():
+    # Regression test: a model that never passed triage (or passed triage but
+    # had zero declared_benchmarks, so the Fact-Checker never ran -- see
+    # process_model_node's gate in graph.py) has no extracted_specs/
+    # fact_checks row at all, which means every LEFT JOIN LATERAL column for
+    # those tables comes back NULL, not an empty list/array. ModelDetail's
+    # list fields (quantization_available, declared_benchmarks,
+    # fact_check_flags, fact_check_consistency_issues) don't accept None --
+    # found live in the deployed dashboard (a 500 on every model except the
+    # one with a real fact-check) before queries.py wrapped those four
+    # columns in COALESCE(..., '[]'::jsonb).
+    from psycopg.types.json import Jsonb
+
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO models (model_id, pipeline_tag, downloads, likes, tags, card_data, readme_text) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (TEST_MODEL_ID, "text-generation", 1, 0, Jsonb([]), Jsonb({}), ""),
+        )
+
+    resp = client.get(f"/models/{TEST_MODEL_ID}")
+    assert resp.status_code == 200
+
+    body = resp.json()
+    assert body["quantization_available"] == []
+    assert body["declared_benchmarks"] == []
+    assert body["fact_check_flags"] == []
+    assert body["fact_check_consistency_issues"] == []
+
+
 def test_list_runs_includes_seeded_row():
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(

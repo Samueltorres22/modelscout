@@ -36,9 +36,12 @@ SELECT
     m.model_id, m.pipeline_tag, m.downloads, m.likes, m.tags, m.matched_profile, m.ingested_at,
     t.is_relevant, t.confidence AS triage_confidence,
     e.params_billion, e.license, e.architecture_family, e.hardware_requirements,
-    e.quantization_available, e.declared_benchmarks, e.parse_error AS extraction_parse_error,
+    COALESCE(e.quantization_available, '[]'::jsonb) AS quantization_available,
+    COALESCE(e.declared_benchmarks, '[]'::jsonb) AS declared_benchmarks,
+    e.parse_error AS extraction_parse_error,
     f.verdict AS fact_check_verdict, f.confidence AS fact_check_confidence,
-    f.flags AS fact_check_flags, f.consistency_issues AS fact_check_consistency_issues,
+    COALESCE(f.flags, '[]'::jsonb) AS fact_check_flags,
+    COALESCE(f.consistency_issues, '[]'::jsonb) AS fact_check_consistency_issues,
     f.reasoning AS fact_check_reasoning, f.parse_error AS fact_check_parse_error
 FROM models m
 LEFT JOIN LATERAL (
